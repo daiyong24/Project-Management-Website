@@ -19,6 +19,15 @@ class CreateActivitiesTable extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
+            $table->string('type')->default('Assignment');
+            $table->string('status')->default('Pending');
+            $table->string('task_name')->nullable();
+            $table->foreignId('assigned_to_user_id')
+                ->nullable()
+                ->constrained('users')
+                ->nullOnDelete();
+            $table->date('due_date')->nullable();
+            $table->text('note')->nullable();
             $table->boolean('is_completed')->default(false);
             $table->timestamps();
         });

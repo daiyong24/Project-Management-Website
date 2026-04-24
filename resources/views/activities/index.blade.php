@@ -2,6 +2,22 @@
 
 @section('content')
 <link rel="stylesheet" href="{{ asset('css/activities.css') }}">
+<style>
+.activities-grid-row-nested { padding:.75rem 1rem; background:#f9fafb; border-bottom:1px solid #e5e7eb; }
+.activities-grid-row-nested details summary { cursor:pointer; color:#4b5563; font-size:.85rem; list-style:none; }
+.activities-grid-row-nested details summary::-webkit-details-marker { display:none; }
+.activities-grid-row-nested details[open] summary { margin-bottom:.5rem; color:#111827; font-weight:500; }
+.nested-child-row { display:flex; justify-content:space-between; align-items:center; padding:.4rem .5rem; font-size:.85rem; border-bottom:1px dashed #e5e7eb; }
+.nested-child-row:last-of-type { border-bottom:none; }
+.nested-child-row .meta { color:#9ca3af; font-size:.78rem; }
+.nested-child-row.nested-status { color:#1d4ed8; }
+.nested-child-row.nested-comment { color:#374151; }
+.nested-comment-form { display:flex; gap:.5rem; margin-top:.5rem; padding-top:.5rem; border-top:1px solid #e5e7eb; }
+.nested-comment-form textarea { flex:1; padding:.4rem .5rem; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:.85rem; resize:vertical; }
+.inline-remove-btn { background:none; border:none; color:#dc2626; cursor:pointer; font-size:.9rem; padding:0 .25rem; line-height:1; }
+.status-select-inline { padding:.25rem .5rem; border:1px solid #d1d5db; border-radius:6px; font-size:.8rem; background:#fff; }
+.filter-actions { display:flex; gap:.5rem; align-items:flex-end; }
+</style>
 
 <div class="activities-wrapper">
     <div class="activities-header">
@@ -9,6 +25,9 @@
             <a href="{{ url()->previous() }}" class="activities-back-btn">Back</a>
             <div class="header-actions">
                 <span class="role-chip role-{{ $currentRole }}">{{ ucfirst($currentRole) }}</span>
+                @if ($rolePermissions['actions']['createActivity'])
+                    <a href="{{ route('activities.create') }}" class="action-btn primary-btn">+ New Activity</a>
+                @endif
             </div>
         </div>
 
@@ -25,82 +44,82 @@
                     <small>Total</small>
                 </div>
                 <div class="stat-box">
-                    <span>{{ $activityStats['assignments'] }}</span>
-                    <small>Assigned</small>
+                    <span>{{ $activityStats['pending'] }}</span>
+                    <small>Pending</small>
                 </div>
                 <div class="stat-box">
-                    <span>{{ $activityStats['statusUpdates'] }}</span>
-                    <small>Status</small>
+                    <span>{{ $activityStats['inProgress'] }}</span>
+                    <small>In Progress</small>
                 </div>
                 <div class="stat-box">
-                    <span>{{ $activityStats['comments'] }}</span>
-                    <small>Comments</small>
+                    <span>{{ $activityStats['completed'] }}</span>
+                    <small>Completed</small>
                 </div>
             </div>
         </div>
     </div>
 
-    <section class="activities-filter-card" aria-label="Activity filters">
+    <form method="GET" action="{{ route('activities.index') }}" class="activities-filter-card" aria-label="Activity filters">
         <div class="filter-field search-field">
             <label for="activity-search">Search</label>
-            <input id="activity-search" type="search" placeholder="Project, task, person, comment">
-        </div>
-
-        <div class="filter-field">
-            <label for="activity-type-filter">Type</label>
-            <select id="activity-type-filter">
-                <option value="">All types</option>
-                @foreach ($activityTypes as $type)
-                    <option value="{{ $type }}">{{ $type }}</option>
-                @endforeach
-            </select>
+            <input id="activity-search" type="search" name="keyword" value="{{ $filters['keyword'] ?? '' }}" placeholder="Title, description, task, comment">
         </div>
 
         <div class="filter-field">
             <label for="activity-project-filter">Project</label>
-            <select id="activity-project-filter">
+            <select id="activity-project-filter" name="project_id">
                 <option value="">All projects</option>
-                @foreach ($projects as $project)
-                    <option value="{{ $project }}">{{ $project }}</option>
+                @foreach ($projectOptions as $project)
+                    <option value="{{ $project->id }}" {{ (string)($filters['project_id'] ?? '') === (string)$project->id ? 'selected' : '' }}>{{ $project->title }}</option>
                 @endforeach
             </select>
         </div>
-    </section>
+
+        <div class="filter-field">
+            <label for="activity-status-filter">Status</label>
+            <select id="activity-status-filter" name="status">
+                <option value="">All statuses</option>
+                @foreach ($activityStatuses as $status)
+                    <option value="{{ $status }}" {{ ($filters['status'] ?? '') === $status ? 'selected' : '' }}>{{ $status }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        <div class="filter-field">
+            <label for="activity-assignee-filter">Assignee</label>
+            <select id="activity-assignee-filter" name="assignee_id">
+                <option value="">Anyone</option>
+                @foreach ($assigneeOptions as $user)
+                    <option value="{{ $user->id }}" {{ (string)($filters['assignee_id'] ?? '') === (string)$user->id ? 'selected' : '' }}>{{ $user->name }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        <div class="filter-field filter-actions">
+            <button type="submit" class="action-btn primary-btn">Apply</button>
+            <a href="{{ route('activities.index', ['reset' => 1]) }}" class="action-btn secondary-btn">Clear</a>
+        </div>
+    </form>
 
     @if (session('activity_success'))
         <div class="activity-alert success-alert">{{ session('activity_success') }}</div>
     @endif
 
     @if ($errors->any())
-        <div class="activity-alert error-alert">Please review the form and try again.</div>
+        <div class="activity-alert error-alert">
+            <ul style="margin:0;padding-left:1.25rem;">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
     @endif
 
     <div class="activities-grid-card">
         <div class="activities-grid-toolbar">
             <div>
                 <span class="grid-view-label">Grid view</span>
-                <span class="grid-view-count" data-grid-count>{{ $activityStats['total'] }} records</span>
-            </div>
-
-            <div class="grid-toolbar-actions">
-                <div class="toolbar-control">
-                    <label for="activity-sort">Sort</label>
-                    <select id="activity-sort">
-                        <option value="date_desc">Newest first</option>
-                        <option value="date_asc">Oldest first</option>
-                        <option value="project_asc">Project A-Z</option>
-                        <option value="status_asc">Status</option>
-                    </select>
-                </div>
-
-                <div class="toolbar-control">
-                    <label for="activity-page-size">Rows</label>
-                    <select id="activity-page-size">
-                        <option value="5">5</option>
-                        <option value="10" selected>10</option>
-                        <option value="20">20</option>
-                    </select>
-                </div>
+                <span class="grid-view-count">{{ $activityStats['total'] }} records</span>
             </div>
         </div>
 
@@ -120,211 +139,175 @@
 
             @forelse ($activities as $index => $activity)
                 @php
-                    $typeClass = 'badge-default';
-
-                    if ($activity['type'] === 'Assignment') {
-                        $typeClass = 'badge-assignment';
-                    } elseif ($activity['type'] === 'Status Update') {
-                        $typeClass = 'badge-status';
-                    } elseif ($activity['type'] === 'Comment') {
-                        $typeClass = 'badge-comment';
-                    }
-
+                    $typeClass = 'badge-assignment';
                     $statusClass = 'status-default';
+                    if ($activity['status'] === 'Pending') $statusClass = 'status-pending';
+                    elseif ($activity['status'] === 'In Progress') $statusClass = 'status-progress';
+                    elseif ($activity['status'] === 'Completed') $statusClass = 'status-completed';
 
-                    if ($activity['status'] === 'Pending') {
-                        $statusClass = 'status-pending';
-                    } elseif ($activity['status'] === 'In Progress') {
-                        $statusClass = 'status-progress';
-                    } elseif ($activity['status'] === 'Completed') {
-                        $statusClass = 'status-completed';
-                    }
+                    $canUpdateStatus = $rolePermissions['actions']['updateStatus'];
+                    $canComment = $rolePermissions['actions']['addComment'];
+                    $isTaskCreator = $activity['createdById'] === $currentUserId;
+                    $canEditActivity = ($rolePermissions['actions']['editActivity'] ?? false) && ($currentRole === 'admin' || $isTaskCreator);
+                    $canDeleteActivity = $rolePermissions['actions']['deleteActivity'] && ($currentRole === 'admin' || $isTaskCreator);
 
-                    $searchText = strtolower(implode(' ', [
-                        $activity['title'],
-                        $activity['description'],
-                        $activity['type'],
-                        $activity['project'],
-                        $activity['task'],
-                        $activity['createdBy'],
-                        $activity['assignedTo'],
-                        $activity['status'],
-                        $activity['comment'],
-                    ]));
-
-                    $createdTimestamp = \Carbon\Carbon::parse($activity['createdAt'])->timestamp;
+                    $childCount = count($activity['comments']) + count($activity['status_history']);
                 @endphp
 
-                <div
-                    class="activities-grid-row"
-                    data-activity-card
-                    data-search="{{ $searchText }}"
-                    data-type="{{ $activity['type'] }}"
-                    data-project="{{ $activity['project'] }}"
-                    data-title="{{ $activity['title'] }}"
-                    data-description="{{ $activity['description'] }}"
-                    data-task="{{ $activity['task'] }}"
-                    data-created-by="{{ $activity['createdBy'] }}"
-                    data-assigned-to="{{ $activity['assignedTo'] }}"
-                    data-status="{{ $activity['status'] }}"
-                    data-created-at="{{ $activity['createdAt'] }}"
-                    data-comment="{{ $activity['comment'] }}"
-                    data-due-date="{{ $activity['dueDate'] }}"
-                    data-sort-date="{{ $createdTimestamp }}"
-                >
-                    <div class="grid-cell col-no" data-row-number>{{ $index + 1 }}</div>
+                <div class="activities-grid-row">
+                    <div class="grid-cell col-no">{{ $index + 1 }}</div>
 
                     <div class="grid-cell col-project">
-                        <span class="project-name" data-row-project>{{ $activity['project'] }}</span>
+                        <span class="project-name">{{ $activity['project'] }}</span>
                     </div>
 
                     <div class="grid-cell col-task">
-                        <span data-row-task>{{ $activity['task'] }}</span>
-                        <small>Due <span data-row-due-date>{{ $activity['dueDate'] }}</span></small>
+                        <span>{{ $activity['task'] }}</span>
+                        @if ($activity['dueDate'])
+                            <small>Due {{ $activity['dueDate'] }}</small>
+                        @endif
                     </div>
 
                     <div class="grid-cell col-type">
-                        <span class="type-badge {{ $typeClass }}" data-row-type-badge>{{ $activity['type'] }}</span>
+                        <span class="type-badge {{ $typeClass }}">{{ $activity['type'] }}</span>
                     </div>
 
                     <div class="grid-cell col-person">
                         <div class="person-cell">
                             <span class="person-avatar">{{ strtoupper(substr($activity['createdBy'], 0, 1)) }}</span>
-                            <span data-row-created-by>{{ $activity['createdBy'] }}</span>
+                            <span>{{ $activity['createdBy'] }}</span>
                         </div>
                     </div>
 
                     <div class="grid-cell col-person">
                         <div class="person-cell">
-                            <span class="person-avatar alt-avatar" data-row-assigned-avatar>{{ strtoupper(substr($activity['assignedTo'], 0, 1)) }}</span>
-                            <span data-row-assigned-to>{{ $activity['assignedTo'] }}</span>
+                            <span class="person-avatar alt-avatar">{{ strtoupper(substr($activity['assignedTo'] ?: '—', 0, 1)) }}</span>
+                            <span>{{ $activity['assignedTo'] ?: '—' }}</span>
                         </div>
                     </div>
 
                     <div class="grid-cell col-status">
-                        <span class="status-pill {{ $statusClass }}" data-row-status-pill>{{ $activity['status'] }}</span>
+                        @if ($canUpdateStatus)
+                            <form method="POST" action="{{ route('activities.status', $activity['id']) }}" style="margin:0;">
+                                @csrf
+                                @method('PATCH')
+                                <select name="status" class="status-select-inline" onchange="this.form.submit()">
+                                    @foreach (['Pending', 'In Progress', 'Completed'] as $s)
+                                        <option value="{{ $s }}" @if($activity['status'] === $s) selected @endif>{{ $s }}</option>
+                                    @endforeach
+                                </select>
+                            </form>
+                        @else
+                            <span class="status-pill {{ $statusClass }}">{{ $activity['status'] }}</span>
+                        @endif
                     </div>
 
-                    <div class="grid-cell col-date" data-row-created-at>{{ $activity['createdAt'] }}</div>
+                    <div class="grid-cell col-date">{{ $activity['createdAt'] }}</div>
 
                     <div class="grid-cell col-comment">
-                        <div class="comment-title" data-row-title>{{ $activity['title'] }}</div>
-                        <div class="comment-desc" data-row-description>{{ $activity['description'] }}</div>
-
-                        @if (!empty($activity['comment']))
-                            <div class="comment-note" data-row-comment>{{ $activity['comment'] }}</div>
-                        @else
-                            <div class="comment-note is-empty" data-row-comment hidden></div>
-                        @endif
+                        <div class="comment-title">{{ $activity['title'] }}</div>
+                        <div class="comment-desc">{{ $activity['description'] }}</div>
                     </div>
 
                     <div class="grid-cell col-actions">
                         <div class="row-actions">
-                            <button type="button" class="action-btn neutral-btn" data-row-action="view">View</button>
-
-                            @if ($rolePermissions['actions']['addComment'])
-                                <button type="button" class="action-btn primary-btn" data-row-action="comment">Comment</button>
+                            @if ($canEditActivity)
+                                <a href="{{ route('activities.edit', $activity['id']) }}" class="action-btn secondary-btn">Edit</a>
                             @endif
-
-                            @if ($rolePermissions['actions']['removeComment'] && $activity['type'] === 'Comment')
-                                <button type="button" class="action-btn danger-btn" data-row-action="remove">Remove</button>
+                            @if ($canDeleteActivity)
+                                <form method="POST" action="{{ route('activities.destroy', $activity['id']) }}" onsubmit="return confirm('Delete this activity and all its comments?')" style="display:inline;margin:0;">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="action-btn danger-btn">Remove</button>
+                                </form>
                             @endif
                         </div>
                     </div>
                 </div>
+
+                @if ($childCount > 0 || $canComment)
+                    <div class="activities-grid-row-nested">
+                        <details data-activity-id="{{ $activity['id'] }}">
+                            <summary>
+                                💬 {{ count($activity['comments']) }} {{ count($activity['comments']) === 1 ? 'comment' : 'comments' }}
+                                · 🔄 {{ count($activity['status_history']) }} status {{ count($activity['status_history']) === 1 ? 'update' : 'updates' }}
+                            </summary>
+
+                            @foreach ($activity['status_history'] as $sh)
+                                <div class="nested-child-row nested-status">
+                                    <span>🔄 <strong>{{ $sh['author'] }}</strong> changed status to <strong>{{ $sh['status'] }}</strong></span>
+                                    <span class="meta">{{ $sh['createdAt'] }}</span>
+                                </div>
+                            @endforeach
+
+                            @foreach ($activity['comments'] as $c)
+                                <div class="nested-child-row nested-comment">
+                                    <span>💬 <strong>{{ $c['author'] }}:</strong> {{ $c['note'] }}</span>
+                                    <span class="meta">
+                                        {{ $c['createdAt'] }}
+                                        @if ($rolePermissions['actions']['deleteComment'] && ($currentRole === 'admin' || $c['author_id'] === $currentUserId))
+                                            <form method="POST" action="{{ route('activities.destroy', $c['id']) }}" onsubmit="return confirm('Delete this comment?')" style="display:inline;margin:0 0 0 .25rem;">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="inline-remove-btn" title="Delete">×</button>
+                                            </form>
+                                        @endif
+                                    </span>
+                                </div>
+                            @endforeach
+
+                            @if ($canComment)
+                                <form method="POST" action="{{ route('activities.comments.store', $activity['id']) }}" class="nested-comment-form">
+                                    @csrf
+                                    <textarea name="note" rows="1" placeholder="Add a comment..." required></textarea>
+                                    <button type="submit" class="action-btn primary-btn">Comment</button>
+                                </form>
+                            @endif
+                        </details>
+                    </div>
+                @endif
             @empty
                 <div class="empty-state">
-                    <h2>No activities available</h2>
-                    <p>Your current role can only see activities connected to its permitted projects and tasks.</p>
+                    <h2>No activities</h2>
+                    <p>No activities visible under your current role and filters.</p>
                 </div>
             @endforelse
         </div>
 
-        <div class="empty-state" id="activity-filter-empty" hidden>
-            <h2>No matching activities</h2>
-            <p>Try a different search term, type, or project filter.</p>
-        </div>
+        @if ($activities->hasPages())
+            <div class="grid-pagination server-pagination">
+                <span class="pagination-summary">
+                    Page {{ $activities->currentPage() }} of {{ $activities->lastPage() }} &mdash; {{ $activities->total() }} total
+                </span>
+                <div class="pagination-actions">
+                    @if ($activities->onFirstPage())
+                        <span class="action-btn secondary-btn disabled">Previous</span>
+                    @else
+                        <a href="{{ $activities->previousPageUrl() }}" class="action-btn secondary-btn">Previous</a>
+                    @endif
 
-        <div class="grid-pagination" id="activity-pagination" hidden>
-            <span class="pagination-summary" data-pagination-summary>Showing 0-0</span>
-            <div class="pagination-actions">
-                <button type="button" class="action-btn secondary-btn" id="activity-prev-page">Previous</button>
-                <button type="button" class="action-btn secondary-btn" id="activity-next-page">Next</button>
+                    @if ($activities->hasMorePages())
+                        <a href="{{ $activities->nextPageUrl() }}" class="action-btn secondary-btn">Next</a>
+                    @else
+                        <span class="action-btn secondary-btn disabled">Next</span>
+                    @endif
+                </div>
             </div>
-        </div>
+        @endif
     </div>
 </div>
 
-<div class="activity-modal-backdrop" id="activity-action-modal-backdrop" hidden>
-    <div class="activity-modal action-modal" role="dialog" aria-modal="true" aria-labelledby="activity-action-modal-title">
-        <div class="activity-modal-header">
-            <div>
-                <h2 id="activity-action-modal-title">Activity Details</h2>
-                <p id="activity-action-modal-subtitle">Review the activity details in a read-only frontend view.</p>
-            </div>
-            <button type="button" class="modal-close-btn" data-close-action-modal aria-label="Close">×</button>
-        </div>
-
-        <div class="activity-form">
-            <div class="action-modal-grid">
-                <div class="action-summary-card">
-                    <span class="summary-label">Title</span>
-                    <strong id="action-summary-title">-</strong>
-                </div>
-                <div class="action-summary-card">
-                    <span class="summary-label">Project</span>
-                    <strong id="action-summary-project">-</strong>
-                </div>
-                <div class="action-summary-card">
-                    <span class="summary-label">Task</span>
-                    <strong id="action-summary-task">-</strong>
-                </div>
-                <div class="action-summary-card">
-                    <span class="summary-label">Created By</span>
-                    <strong id="action-summary-created-by">-</strong>
-                </div>
-            </div>
-
-            <div class="modal-form-grid action-form-grid">
-                <div class="filter-field" data-action-field="assigned_to">
-                    <label for="action-assigned-to">Assigned To</label>
-                    <input id="action-assigned-to" readonly>
-                </div>
-
-                <div class="filter-field" data-action-field="status">
-                    <label for="action-status">Status</label>
-                    <select id="action-status" disabled>
-                        @foreach (['Pending', 'In Progress', 'Completed'] as $status)
-                            <option value="{{ $status }}">{{ $status }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div class="filter-field" data-action-field="due_date">
-                    <label for="action-due-date">Due Date</label>
-                    <input id="action-due-date" type="date" readonly>
-                </div>
-
-                <div class="filter-field action-description-field" data-action-field="description">
-                    <label for="action-description">Description</label>
-                    <input id="action-description" readonly>
-                </div>
-            </div>
-
-            <div class="filter-field full-width-field" data-action-field="comment">
-                <label for="action-comment">Comment / Note</label>
-                <textarea id="action-comment" rows="4" placeholder="Add your note"></textarea>
-            </div>
-
-            <div class="activity-alert info-alert" id="activity-action-feedback" hidden></div>
-
-            <div class="activity-modal-footer">
-                <button type="button" class="action-btn secondary-btn" data-close-action-modal>Close</button>
-                <button type="button" class="action-btn primary-btn" id="activity-action-save">Apply Draft Change</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script src="{{ asset('js/activities.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('details[data-activity-id]').forEach(function (d) {
+        var key = 'activity-details-' + d.dataset.activityId;
+        if (sessionStorage.getItem(key) === 'open') {
+            d.open = true;
+        }
+        d.addEventListener('toggle', function () {
+            sessionStorage.setItem(key, d.open ? 'open' : 'closed');
+        });
+    });
+});
+</script>
 @endsection

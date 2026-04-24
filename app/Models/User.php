@@ -41,11 +41,23 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
     ];
 
-    /**
-     * Get the activities created by the user.
-     */
     public function activities()
     {
         return $this->hasMany(Activity::class);
+    }
+
+    public function assignedActivities()
+    {
+        return $this->hasMany(Activity::class, 'assigned_to_user_id');
+    }
+
+    public function projects()
+    {
+        return $this->belongsToMany(Project::class)->withTimestamps();
+    }
+
+    public function createdProjects()
+    {
+        return $this->hasMany(Project::class, 'created_by');
     }
 }
