@@ -66,4 +66,16 @@ class LoginController extends Controller
         }
         return back()->withInput($request->only('email', 'remember'));
     }
+
+    public function logout(Request $request)
+    {
+        Auth::guard('admin')->logout();
+        Auth::guard('author')->logout();
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect('/');
+    }
 }

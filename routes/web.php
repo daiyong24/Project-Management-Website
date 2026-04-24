@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\PostController;
 use Illuminate\Support\Facades\Gate;
+use App\Http\Controllers\ActivityController;
 
 Route::view('/posts/create', 'post.create');
 Route::post('/posts', [PostController::class, 'create']);
@@ -46,3 +47,6 @@ Route::view('/admin', 'admin');
 });
 Route::get('logout', [LoginController::class,'logout']);
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
+
+Route::get('/activities', [ActivityController::class, 'index'])->name('activities.index');
+Route::post('/activities', [ActivityController::class, 'store'])->name('activities.store');
