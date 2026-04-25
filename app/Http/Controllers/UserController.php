@@ -90,8 +90,8 @@ class UserController extends Controller
             'role' => $validated['role'],
         ]);
 
-        return redirect()->route('users.index')
-            ->with('success', 'Users created successfully.');
+        return redirect()->route('users.index', ['role' => $oUser->role])
+            ->with('success', 'Created '.$oUser->role.' successfully.');
     }
 
     public function edit(User $oUser)
@@ -118,7 +118,7 @@ class UserController extends Controller
         Gate::authorize('update', $user);
 
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255', Rule::unique('users')->ignore($oUser->id)],
+            'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'max:255', 'email', Rule::unique('users')->ignore($oUser->id)],
             'role' => ['required'],
         ], [
@@ -138,8 +138,8 @@ class UserController extends Controller
                 ->with('success', 'User account updated successfully.');
         }
         else {
-            return redirect()->route('users.index')
-                ->with('success', 'User updated successfully.');
+            return redirect()->route('users.index', ['role' => $oUser->role])
+                ->with('success', 'Updated '.$oUser->role.' successfully.');
         }
     }
 
@@ -153,10 +153,11 @@ class UserController extends Controller
 
         Gate::authorize('delete', $user);
 
+        $role = $oUser->role;
         $oUser->delete();
 
-        return redirect()->route('users.index')
-            ->with('success', 'User deleted successfully.');
+        return redirect()->route('users.index', ['role' => $role])
+            ->with('success', 'Deleted '.$role.' successfully.');
     }
 
     
