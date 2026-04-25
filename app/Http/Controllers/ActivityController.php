@@ -2,13 +2,23 @@
 
 namespace App\Http\Controllers;
 
-use Carbon\Carbon;
+use App\Http\Requests\AddCommentRequest;
+use App\Http\Requests\StoreActivityRequest;
+use App\Http\Requests\UpdateActivityRequest;
+use App\Http\Requests\UpdateStatusRequest;
+use App\Models\Activity;
+use App\Models\Project;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Facades\Gate;
 
 class ActivityController extends Controller
 {
+    private const FILTER_KEYS = ['keyword', 'project_id', 'status', 'assignee_id', 'from', 'to'];
+    private const FILTER_COOKIE = 'activity_filter_prefs';
+
     public function index(Request $request)
     {
         [$currentRole, $currentUser] = $this->activeUser();
@@ -17,57 +27,77 @@ class ActivityController extends Controller
             return redirect()->route('login');
         }
 
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('viewAny', Activity::class);
+        }
+
         $currentUserName = $currentUser->name;
+        $currentUserId = $currentUser->id;
         $rolePermissions = $this->rolePermissions($currentRole);
 
-        $activities = array_merge(
-            $this->sessionActivities(),
-            $this->activitiesForDemo($currentUserName, $currentRole)
-        );
+        $filters = $this->resolveFilters($request);
+
+        $query = Activity::tasks()
+            ->with([
+                'project',
+                'user',
+                'assignedTo',
+                'comments.user',
+                'statusUpdates.user',
+            ]);
 
         if ($currentRole === 'author') {
-            $activities = array_values(array_filter($activities, function ($activity) use ($currentUserName) {
-                return $activity['owner'] === $currentUserName;
-            }));
+            $projectIds = Project::where('created_by', $currentUser->id)->pluck('id');
+            $query->whereIn('project_id', $projectIds);
+        } elseif ($currentRole === 'user') {
+            $query->where(function ($inner) use ($currentUser) {
+                $inner->where('user_id', $currentUser->id)
+                    ->orWhere('assigned_to_user_id', $currentUser->id);
+            });
         }
 
-        if ($currentRole === 'user') {
-            $activities = array_values(array_filter($activities, function ($activity) use ($currentUserName) {
-                return $activity['assignedTo'] === $currentUserName || $activity['createdBy'] === $currentUserName;
-            }));
-        }
+        $query->filter($filters);
 
-        $activityTypes = collect($activities)->pluck('type')->unique()->values();
-        $projects = collect($activities)->pluck('project')->unique()->values();
-        $tasks = collect($activities)->pluck('task')->unique()->values();
-        $people = collect($activities)
-            ->flatMap(function ($activity) {
-                return [$activity['createdBy'], $activity['assignedTo'], $activity['owner']];
-            })
-            ->filter()
-            ->unique()
-            ->values();
+        $statsQuery = clone $query;
+
+        $paginator = $query->latest()->paginate(10)->withQueryString();
+        $paginator->setCollection(
+            $paginator->getCollection()->map(fn ($task) => $this->presentTask($task))
+        );
+
+        $activities = $paginator;
+
+        $projectOptions = $this->scopedProjects($currentRole, $currentUser);
+        $assigneeOptions = User::query()
+            ->whereIn('role', ['user', 'author'])
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        $activityStatuses = collect(['Pending', 'In Progress', 'Completed']);
+
         $activityStats = [
-            'total' => count($activities),
-            'assignments' => collect($activities)->where('type', 'Assignment')->count(),
-            'statusUpdates' => collect($activities)->where('type', 'Status Update')->count(),
-            'comments' => collect($activities)->where('type', 'Comment')->count(),
+            'total' => $paginator->total(),
+            'pending' => (clone $statsQuery)->where('status', 'Pending')->count(),
+            'inProgress' => (clone $statsQuery)->where('status', 'In Progress')->count(),
+            'completed' => (clone $statsQuery)->where('status', 'Completed')->count(),
         ];
+
+        Cookie::queue(self::FILTER_COOKIE, json_encode($filters), 60 * 24 * 30);
 
         return view('activities.index', compact(
             'activities',
             'currentRole',
             'currentUserName',
+            'currentUserId',
             'rolePermissions',
-            'activityTypes',
-            'projects',
-            'tasks',
-            'people',
-            'activityStats'
+            'projectOptions',
+            'assigneeOptions',
+            'activityStatuses',
+            'activityStats',
+            'filters'
         ));
     }
 
-    public function store(Request $request)
+    public function create(Request $request)
     {
         [$currentRole, $currentUser] = $this->activeUser();
 
@@ -75,32 +105,258 @@ class ActivityController extends Controller
             return redirect()->route('login');
         }
 
-        $currentUserName = $currentUser->name;
-        $rolePermissions = $this->rolePermissions($currentRole);
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('create', Activity::class);
+        }
 
-        abort_unless($rolePermissions['actions']['createActivity'], 403);
+        $projectOptions = $this->scopedProjects($currentRole, $currentUser);
+        $userOptions = User::query()->orderBy('name')->get(['id', 'name']);
+        $statuses = ['Pending', 'In Progress', 'Completed'];
 
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'description' => ['required', 'string', 'max:500'],
-            'type' => ['required', Rule::in($rolePermissions['activityTypes'])],
-            'project' => ['required', 'string', 'max:255'],
-            'task' => ['required', 'string', 'max:255'],
-            'assigned_to' => ['nullable', 'string', 'max:255'],
-            'status' => ['nullable', Rule::in(['Pending', 'In Progress', 'Completed'])],
-            'due_date' => ['nullable', 'date'],
-            'comment' => ['nullable', 'string', 'max:1000'],
-        ]);
+        return view('activities.create', compact(
+            'projectOptions',
+            'userOptions',
+            'statuses',
+            'currentRole'
+        ));
+    }
 
-        $activity = $this->buildActivityPayload($validated, $currentRole, $currentUserName);
+    public function store(StoreActivityRequest $request)
+    {
+        [$currentRole, $currentUser] = $this->activeUser();
 
-        $customActivities = $request->session()->get('custom_activities', []);
-        array_unshift($customActivities, $activity);
-        $request->session()->put('custom_activities', $customActivities);
+        if (!$currentUser) {
+            return redirect()->route('login');
+        }
+
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('create', Activity::class);
+        }
+
+        $validated = $request->validated();
+        $validated['user_id'] = $currentUser->id;
+        $validated['type'] = 'Assignment';
+        $validated['status'] = $validated['status'] ?? 'Pending';
+        $validated['is_completed'] = $validated['status'] === 'Completed';
+
+        Activity::create($validated);
 
         return redirect()
             ->route('activities.index')
-            ->with('activity_success', 'New activity created successfully.');
+            ->with('activity_success', 'Activity created successfully.');
+    }
+
+    public function edit(Activity $activity)
+    {
+        [$currentRole, $currentUser] = $this->activeUser();
+
+        if (!$currentUser) {
+            return redirect()->route('login');
+        }
+
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('update', $activity);
+        }
+
+        $projectOptions = $this->scopedProjects($currentRole, $currentUser);
+        $userOptions = User::query()->orderBy('name')->get(['id', 'name']);
+
+        return view('activities.edit', compact(
+            'activity',
+            'projectOptions',
+            'userOptions',
+            'currentRole'
+        ));
+    }
+
+    public function update(Activity $activity, UpdateActivityRequest $request)
+    {
+        [$currentRole, $currentUser] = $this->activeUser();
+
+        if (!$currentUser) {
+            return redirect()->route('login');
+        }
+
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('update', $activity);
+        }
+
+        $activity->update($request->validated());
+
+        return redirect()
+            ->route('activities.index')
+            ->with('activity_success', 'Activity updated successfully.');
+    }
+
+    public function addComment(Activity $activity, AddCommentRequest $request)
+    {
+        [$currentRole, $currentUser] = $this->activeUser();
+
+        if (!$currentUser) {
+            return redirect()->route('login');
+        }
+
+        abort_unless($activity->parent_activity_id === null, 404);
+
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('addComment', $activity);
+        }
+
+        Activity::create([
+            'project_id' => $activity->project_id,
+            'user_id' => $currentUser->id,
+            'parent_activity_id' => $activity->id,
+            'title' => 'Comment',
+            'description' => $currentUser->name . ' commented on "' . $activity->title . '"',
+            'type' => 'Comment',
+            'status' => 'Pending',
+            'task_name' => $activity->task_name,
+            'note' => $request->validated()['note'],
+        ]);
+
+        return redirect()
+            ->route('activities.index')
+            ->with('activity_success', 'Comment added.');
+    }
+
+    public function updateStatus(Activity $activity, UpdateStatusRequest $request)
+    {
+        [$currentRole, $currentUser] = $this->activeUser();
+
+        if (!$currentUser) {
+            return redirect()->route('login');
+        }
+
+        abort_unless($activity->parent_activity_id === null, 404);
+
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('updateStatus', $activity);
+        }
+
+        $newStatus = $request->validated()['status'];
+
+        if ($activity->status === $newStatus) {
+            return redirect()
+                ->route('activities.index')
+                ->with('activity_success', 'Status unchanged.');
+        }
+
+        Activity::create([
+            'project_id' => $activity->project_id,
+            'user_id' => $currentUser->id,
+            'parent_activity_id' => $activity->id,
+            'title' => 'Status Updated',
+            'description' => $currentUser->name . ' changed status to ' . $newStatus,
+            'type' => 'Status Update',
+            'status' => $newStatus,
+            'task_name' => $activity->task_name,
+        ]);
+
+        $activity->update([
+            'status' => $newStatus,
+            'is_completed' => $newStatus === 'Completed',
+        ]);
+
+        return redirect()
+            ->route('activities.index')
+            ->with('activity_success', 'Status updated to ' . $newStatus . '.');
+    }
+
+    public function destroy(Activity $activity)
+    {
+        [$currentRole, $currentUser] = $this->activeUser();
+
+        if (!$currentUser) {
+            return redirect()->route('login');
+        }
+
+        if ($currentUser instanceof User) {
+            Gate::forUser($currentUser)->authorize('delete', $activity);
+        }
+
+        $activity->delete();
+
+        return redirect()
+            ->route('activities.index')
+            ->with('activity_success', 'Removed successfully.');
+    }
+
+    private function resolveFilters(Request $request): array
+    {
+        if ($request->boolean('reset')) {
+            Cookie::queue(Cookie::forget(self::FILTER_COOKIE));
+            return [];
+        }
+
+        if ($request->hasAny(self::FILTER_KEYS)) {
+            return array_filter($request->only(self::FILTER_KEYS), fn ($v) => $v !== null && $v !== '');
+        }
+
+        $cookie = $request->cookie(self::FILTER_COOKIE);
+
+        if ($cookie) {
+            $decoded = json_decode($cookie, true);
+
+            if (is_array($decoded)) {
+                return array_intersect_key($decoded, array_flip(self::FILTER_KEYS));
+            }
+        }
+
+        return [];
+    }
+
+    private function scopedProjects(string $role, $user)
+    {
+        $q = Project::query()->orderBy('title');
+
+        if ($role === 'author') {
+            $q->where('created_by', $user->id);
+        } elseif ($role === 'user') {
+            $q->whereHas('users', fn ($q2) => $q2->where('users.id', $user->id));
+        }
+
+        return $q->get(['id', 'title']);
+    }
+
+    private function presentTask(Activity $task): array
+    {
+        $assignedName = optional($task->assignedTo)->name;
+        $createdName = optional($task->user)->name;
+
+        $comments = $task->comments->map(fn ($c) => [
+            'id' => $c->id,
+            'author' => optional($c->user)->name ?? '',
+            'author_id' => $c->user_id,
+            'note' => $c->note ?? '',
+            'createdAt' => optional($c->created_at)->format('Y-m-d h:i A') ?? '',
+        ])->all();
+
+        $statusHistory = $task->statusUpdates->map(fn ($s) => [
+            'id' => $s->id,
+            'author' => optional($s->user)->name ?? '',
+            'status' => $s->status,
+            'createdAt' => optional($s->created_at)->format('Y-m-d h:i A') ?? '',
+        ])->all();
+
+        return [
+            'id' => $task->id,
+            'title' => $task->title,
+            'description' => $task->description,
+            'type' => $task->type,
+            'project' => optional($task->project)->title ?? '',
+            'project_id' => $task->project_id,
+            'task' => $task->task_name ?? '',
+            'createdBy' => $createdName ?? '',
+            'createdById' => $task->user_id,
+            'assignedTo' => $assignedName ?? '',
+            'assignedToId' => $task->assigned_to_user_id,
+            'status' => $task->status,
+            'dueDate' => optional($task->due_date)->format('Y-m-d') ?? '',
+            'createdAt' => optional($task->created_at)->format('Y-m-d h:i A') ?? '',
+            'note' => $task->note ?? '',
+            'comments' => $comments,
+            'status_history' => $statusHistory,
+        ];
     }
 
     private function activeUser(): array
@@ -114,7 +370,9 @@ class ActivityController extends Controller
         }
 
         if (Auth::guard('web')->check()) {
-            return ['user', Auth::guard('web')->user()];
+            $user = Auth::guard('web')->user();
+            $role = $user->role ?? 'user';
+            return [$role, $user];
         }
 
         return ['guest', null];
@@ -124,174 +382,40 @@ class ActivityController extends Controller
     {
         $permissions = [
             'admin' => [
-                'summary' => 'View all activity across the system and moderate inappropriate comments without editing activity history.',
-                'can' => [
-                    'View all activities',
-                    'Remove inappropriate comments',
-                    'Monitor system progress',
-                ],
-                'cannot' => [
-                    'Manually edit old activity log records',
-                ],
+                'summary' => 'View all activities, moderate comments, manage system progress.',
                 'actions' => [
-                    'addComment' => false,
-                    'removeComment' => true,
-                    'assignTask' => false,
-                    'updateStatus' => false,
-                    'manageProject' => true,
-                    'createActivity' => false,
+                    'createActivity' => true,
+                    'editActivity' => true,
+                    'updateStatus' => true,
+                    'addComment' => true,
+                    'deleteActivity' => true,
+                    'deleteComment' => true,
                 ],
-                'activityTypes' => [],
             ],
             'author' => [
-                'summary' => 'View activity for your own projects and add comments, while keeping activity history read-only.',
-                'can' => [
-                    'View activity for your own projects',
-                    'Add comments',
-                ],
-                'cannot' => [
-                    'Edit another author project',
-                    'Manage all users or change system roles',
-                    'Manually edit activity logs',
-                ],
+                'summary' => 'Create and manage activities in your own projects. Review progress and leave comments.',
                 'actions' => [
+                    'createActivity' => true,
+                    'editActivity' => true,
+                    'updateStatus' => true,
                     'addComment' => true,
-                    'removeComment' => false,
-                    'assignTask' => false,
-                    'updateStatus' => false,
-                    'manageProject' => true,
-                    'createActivity' => false,
+                    'deleteActivity' => true,
+                    'deleteComment' => true,
                 ],
-                'activityTypes' => [],
             ],
             'user' => [
-                'summary' => 'View assigned activity and add comments only. Activity records themselves stay read-only.',
-                'can' => [
-                    'View activities related to assigned tasks',
-                    'Add comments',
-                    'View allowed project details',
-                ],
-                'cannot' => [
-                    'Create projects or tasks',
-                    'Assign tasks or manage members',
-                    'Edit or delete activity logs',
-                ],
+                'summary' => 'View assigned activities, update their status, and add comments.',
                 'actions' => [
-                    'addComment' => true,
-                    'removeComment' => false,
-                    'assignTask' => false,
-                    'updateStatus' => false,
-                    'manageProject' => false,
                     'createActivity' => false,
+                    'editActivity' => false,
+                    'updateStatus' => true,
+                    'addComment' => true,
+                    'deleteActivity' => false,
+                    'deleteComment' => true,
                 ],
-                'activityTypes' => [],
             ],
         ];
 
-        return $permissions[$role];
-    }
-
-    private function sessionActivities(): array
-    {
-        return session('custom_activities', []);
-    }
-
-    private function buildActivityPayload(array $validated, string $currentRole, string $currentUserName): array
-    {
-        $type = $validated['type'];
-        $assignedTo = $validated['assigned_to'] ?: $currentUserName;
-        $status = $validated['status'] ?: ($type === 'Status Update' ? 'In Progress' : 'Pending');
-        $dueDate = $validated['due_date']
-            ? Carbon::parse($validated['due_date'])->format('Y-m-d')
-            : Carbon::now()->addDays(7)->format('Y-m-d');
-        $comment = $validated['comment'] ?? '';
-        $owner = $currentRole === 'author' ? $currentUserName : ($currentRole === 'user' ? $assignedTo : $currentUserName);
-
-        $title = $validated['title'];
-        $description = $validated['description'];
-
-        if ($type === 'Status Update') {
-            $assignedTo = $currentUserName;
-        }
-
-        return [
-            'title' => $title,
-            'description' => $description,
-            'type' => $type,
-            'project' => $validated['project'],
-            'task' => $validated['task'],
-            'createdBy' => $currentUserName,
-            'assignedTo' => $assignedTo,
-            'status' => $status,
-            'dueDate' => $dueDate,
-            'createdAt' => Carbon::now()->format('Y-m-d h:i A'),
-            'comment' => $comment,
-            'owner' => $owner,
-        ];
-    }
-
-    private function activitiesForDemo(string $currentUserName, string $currentRole): array
-    {
-        $ownerName = $currentRole === 'author' ? $currentUserName : 'Henry';
-        $assignedName = $currentRole === 'user' ? $currentUserName : 'Alicia';
-
-        return [
-            [
-                'title' => 'Task Assigned',
-                'description' => $ownerName . ' assigned "Login UI" to ' . $assignedName . '.',
-                'type' => 'Assignment',
-                'project' => 'Website Redesign',
-                'task' => 'Login UI',
-                'createdBy' => $ownerName,
-                'assignedTo' => $assignedName,
-                'status' => 'Pending',
-                'dueDate' => '2026-05-10',
-                'createdAt' => '2026-04-20 10:30 AM',
-                'comment' => 'Please complete before Friday.',
-                'owner' => $ownerName,
-            ],
-            [
-                'title' => 'Status Updated',
-                'description' => $assignedName . ' changed "Dashboard Cards" status to In Progress.',
-                'type' => 'Status Update',
-                'project' => 'Website Redesign',
-                'task' => 'Dashboard Cards',
-                'createdBy' => $assignedName,
-                'assignedTo' => $assignedName,
-                'status' => 'In Progress',
-                'dueDate' => '2026-05-12',
-                'createdAt' => '2026-04-20 11:10 AM',
-                'comment' => 'Started UI implementation.',
-                'owner' => $ownerName,
-            ],
-            [
-                'title' => 'Comment Added',
-                'description' => $assignedName . ' added a note on "Login UI".',
-                'type' => 'Comment',
-                'project' => 'Website Redesign',
-                'task' => 'Login UI',
-                'createdBy' => $assignedName,
-                'assignedTo' => $assignedName,
-                'status' => 'Pending',
-                'dueDate' => '2026-05-10',
-                'createdAt' => '2026-04-20 01:25 PM',
-                'comment' => 'Need confirmation on the login button color before finalizing.',
-                'owner' => $ownerName,
-            ],
-            [
-                'title' => 'Task Assigned',
-                'description' => 'Mira assigned "Sprint Report" to Daniel.',
-                'type' => 'Assignment',
-                'project' => 'Operations Portal',
-                'task' => 'Sprint Report',
-                'createdBy' => 'Mira',
-                'assignedTo' => 'Daniel',
-                'status' => 'Completed',
-                'dueDate' => '2026-05-14',
-                'createdAt' => '2026-04-21 09:05 AM',
-                'comment' => 'Final report is ready for admin review.',
-                'owner' => 'Mira',
-            ],
-        ];
+        return $permissions[$role] ?? $permissions['user'];
     }
 }

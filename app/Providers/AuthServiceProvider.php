@@ -2,21 +2,18 @@
 
 namespace App\Providers;
 
+use App\Models\Activity;
+use App\Models\Post;
+use App\Policies\ActivityPolicy;
+use App\Policies\PostPolicy;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Gate;
 
 class AuthServiceProvider extends ServiceProvider
 {
-    /**
-     * The policy mappings for the application.
-     *
-     * @var array<class-string, class-string>
-     */
-    // $policies is a protected property of the AuthServiceProvider class.
-    // When you register this in the AuthServiceProvider, Laravel will use the PostPolicy class 
-    // whenever an authorization check is done for the Post model.
     protected $policies = [
-      Post::class => PostPolicy::class,
+        Post::class => PostPolicy::class,
+        Activity::class => ActivityPolicy::class,
     ];
 
     /**

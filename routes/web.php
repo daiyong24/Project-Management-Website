@@ -49,4 +49,10 @@ Route::get('logout', [LoginController::class,'logout']);
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
 
 Route::get('/activities', [ActivityController::class, 'index'])->name('activities.index');
+Route::get('/activities/create', [ActivityController::class, 'create'])->name('activities.create');
 Route::post('/activities', [ActivityController::class, 'store'])->name('activities.store');
+Route::get('/activities/{activity}/edit', [ActivityController::class, 'edit'])->name('activities.edit');
+Route::put('/activities/{activity}', [ActivityController::class, 'update'])->name('activities.update');
+Route::post('/activities/{activity}/comments', [ActivityController::class, 'addComment'])->name('activities.comments.store');
+Route::patch('/activities/{activity}/status', [ActivityController::class, 'updateStatus'])->name('activities.status');
+Route::delete('/activities/{activity}', [ActivityController::class, 'destroy'])->name('activities.destroy');

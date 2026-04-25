@@ -25,6 +25,12 @@
                         You have User Access
                     </div>
                     @endcan
+
+                    <div class="mt-3">
+                        <a href="{{ route('activities.index') }}" class="btn btn-dark">
+                            View Activities
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
