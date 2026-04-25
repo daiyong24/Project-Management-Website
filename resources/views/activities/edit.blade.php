@@ -60,6 +60,41 @@
             </select>
         </div>
 
+        <script>
+            (function() {
+                const projectUserMap = {
+                    @foreach ($projectOptions as $project)
+                        '{{ $project->id }}': {{ json_encode($project->users()->orderBy('users.name')->get(['users.id', 'users.name'])->map(fn($u) => ['id' => $u->id, 'name' => $u->name])) }},
+                    @endforeach
+                };
+                
+                const projectSelect = document.getElementById('project_id');
+                const userSelect = document.getElementById('assigned_to_user_id');
+                const currentAssignedUserId = '{{ old('assigned_to_user_id', $activity->assigned_to_user_id) }}';
+                
+                function filterUsers() {
+                    const projectId = projectSelect.value;
+                    const currentValue = userSelect.value;
+                    
+                    userSelect.innerHTML = '<option value="">Select user</option>';
+                    
+                    if (projectId && projectUserMap[projectId]) {
+                        projectUserMap[projectId].forEach(user => {
+                            const option = document.createElement('option');
+                            option.value = user.id;
+                            option.textContent = user.name;
+                            option.selected = currentValue === user.id.toString() || (currentAssignedUserId && currentAssignedUserId === user.id.toString());
+                            userSelect.appendChild(option);
+                        });
+                    }
+                }
+                
+                projectSelect.addEventListener('change', filterUsers);
+                
+                window.addEventListener('load', filterUsers);
+            })();
+        </script>
+
         <div class="filter-field">
             <label for="due_date">Due Date</label>
             <input id="due_date" type="date" name="due_date"

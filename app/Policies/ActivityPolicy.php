@@ -27,7 +27,11 @@ class ActivityPolicy
 
     public function create(User $user)
     {
-        return $user->role === 'admin';
+        if ($user->role === 'admin') {
+            return true;
+        }
+
+        return $user->createdProjects()->exists();
     }
 
     public function update(User $user, Activity $activity)
@@ -36,7 +40,18 @@ class ActivityPolicy
             return true;
         }
 
-        return $activity->user_id === $user->id;
+        if ($activity->user_id === $user->id) {
+            $project = $activity->project;
+            if ($project) {
+                $isProjectCreator = $project->created_by === $user->id;
+                
+                if ($isProjectCreator) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public function delete(User $user, Activity $activity)

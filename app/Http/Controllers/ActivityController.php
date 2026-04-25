@@ -35,6 +35,12 @@ class ActivityController extends Controller
         $currentUserId = $currentUser->id;
         $rolePermissions = $this->rolePermissions($currentRole);
 
+        $isProjectCreator = $currentRole === 'user' && $currentUser->createdProjects()->exists();
+
+        if ($isProjectCreator) {
+            $rolePermissions['actions']['createActivity'] = true;
+        }
+
         $filters = $this->resolveFilters($request);
 
         $query = Activity::tasks()
@@ -90,7 +96,8 @@ class ActivityController extends Controller
             'assigneeOptions',
             'activityStatuses',
             'activityStats',
-            'filters'
+            'filters',
+            'isProjectCreator'
         ));
     }
 
@@ -107,7 +114,15 @@ class ActivityController extends Controller
         }
 
         $projectOptions = $this->scopedProjects($currentRole, $currentUser);
-        $userOptions = User::query()->orderBy('name')->get(['id', 'name']);
+        
+        $userOptions = User::query()
+            ->distinct()
+            ->join('project_user', 'users.id', '=', 'project_user.user_id')
+            ->join('projects', 'project_user.project_id', '=', 'projects.id')
+            ->whereIn('projects.id', $projectOptions->pluck('id'))
+            ->orderBy('users.name')
+            ->get(['users.id', 'users.name']);
+        
         $statuses = ['Pending', 'In Progress', 'Completed'];
 
         return view('activities.create', compact(
@@ -131,6 +146,24 @@ class ActivityController extends Controller
         }
 
         $validated = $request->validated();
+        
+        $project = Project::findOrFail($validated['project_id']);
+        $assignedUser = User::findOrFail($validated['assigned_to_user_id']);
+        
+        if ($currentRole !== 'admin') {
+            // Check if user is a member of the project OR is the project creator
+            $isProjectMember = $project->users()->where('users.id', $currentUser->id)->exists();
+            $isProjectCreator = $project->created_by === $currentUser->id;
+            
+            if (!$isProjectMember && !$isProjectCreator) {
+                abort(403, 'You are not a member or creator of this project.');
+            }
+        }
+        
+        if (!$project->users()->where('users.id', $assignedUser->id)->exists()) {
+            return redirect()->back()->withErrors('The selected user is not a member of this project.');
+        }
+        
         $validated['user_id'] = $currentUser->id;
         $validated['type'] = 'Assignment';
         $validated['status'] = $validated['status'] ?? 'Pending';
@@ -156,7 +189,9 @@ class ActivityController extends Controller
         }
 
         $projectOptions = $this->scopedProjects($currentRole, $currentUser);
-        $userOptions = User::query()->orderBy('name')->get(['id', 'name']);
+        
+        $project = $activity->project;
+        $userOptions = $project ? $project->users()->orderBy('name')->get(['users.id', 'users.name']) : collect();
 
         return view('activities.edit', compact(
             'activity',
@@ -178,7 +213,26 @@ class ActivityController extends Controller
             Gate::forUser($currentUser)->authorize('update', $activity);
         }
 
-        $activity->update($request->validated());
+        $validated = $request->validated();
+        
+        $project = Project::findOrFail($validated['project_id']);
+        $assignedUser = User::findOrFail($validated['assigned_to_user_id']);
+        
+        if ($currentRole !== 'admin') {
+            // Check if user is a member of the project OR is the project creator
+            $isProjectMember = $project->users()->where('users.id', $currentUser->id)->exists();
+            $isProjectCreator = $project->created_by === $currentUser->id;
+            
+            if (!$isProjectMember && !$isProjectCreator) {
+                abort(403, 'You are not a member or creator of this project.');
+            }
+        }
+        
+        if (!$project->users()->where('users.id', $assignedUser->id)->exists()) {
+            return redirect()->back()->withErrors('The selected user is not a member of this project.');
+        }
+
+        $activity->update($validated);
 
         return redirect()
             ->route('activities.index')
@@ -307,7 +361,10 @@ class ActivityController extends Controller
         $q = Project::query()->orderBy('title');
 
         if ($role === 'user') {
-            $q->whereHas('users', fn ($q2) => $q2->where('users.id', $user->id));
+            $q->where(function ($query) use ($user) {
+                $query->whereHas('users', fn ($q2) => $q2->where('users.id', $user->id))
+                    ->orWhere('created_by', $user->id);
+            });
         }
 
         return $q->get(['id', 'title']);
