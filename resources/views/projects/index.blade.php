@@ -52,6 +52,7 @@
                     @endif
 
                     <div class="project-actions">
+                        <a href="{{ url('/activities?keyword=&project_id=' . $project->id . '&status=&assignee_id=') }}" class="btn btn-view">View Activities</a>
 
                         @if(auth()->id() === $project->created_by || auth()->user()->role === 'admin')
                             <a href="{{ route('projects.edit', $project) }}" class="btn btn-edit">Edit</a>
