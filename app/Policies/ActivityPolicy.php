@@ -21,17 +21,13 @@ class ActivityPolicy
             return true;
         }
 
-        if ($user->role === 'author') {
-            return $activity->project && $activity->project->created_by === $user->id;
-        }
-
         return $activity->user_id === $user->id
             || $activity->assigned_to_user_id === $user->id;
     }
 
     public function create(User $user)
     {
-        return in_array($user->role, ['admin', 'author'], true);
+        return $user->role === 'admin';
     }
 
     public function update(User $user, Activity $activity)

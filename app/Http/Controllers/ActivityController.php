@@ -46,10 +46,7 @@ class ActivityController extends Controller
                 'statusUpdates.user',
             ]);
 
-        if ($currentRole === 'author') {
-            $projectIds = Project::where('created_by', $currentUser->id)->pluck('id');
-            $query->whereIn('project_id', $projectIds);
-        } elseif ($currentRole === 'user') {
+        if ($currentRole === 'user') {
             $query->where(function ($inner) use ($currentUser) {
                 $inner->where('user_id', $currentUser->id)
                     ->orWhere('assigned_to_user_id', $currentUser->id);
@@ -69,7 +66,7 @@ class ActivityController extends Controller
 
         $projectOptions = $this->scopedProjects($currentRole, $currentUser);
         $assigneeOptions = User::query()
-            ->whereIn('role', ['user', 'author'])
+            ->where('role', 'user')
             ->orderBy('name')
             ->get(['id', 'name']);
         $activityStatuses = collect(['Pending', 'In Progress', 'Completed']);
@@ -309,9 +306,7 @@ class ActivityController extends Controller
     {
         $q = Project::query()->orderBy('title');
 
-        if ($role === 'author') {
-            $q->where('created_by', $user->id);
-        } elseif ($role === 'user') {
+        if ($role === 'user') {
             $q->whereHas('users', fn ($q2) => $q2->where('users.id', $user->id));
         }
 
@@ -365,10 +360,6 @@ class ActivityController extends Controller
             return ['admin', Auth::guard('admin')->user()];
         }
 
-        if (Auth::guard('author')->check()) {
-            return ['author', Auth::guard('author')->user()];
-        }
-
         if (Auth::guard('web')->check()) {
             $user = Auth::guard('web')->user();
             $role = $user->role ?? 'user';
@@ -383,17 +374,6 @@ class ActivityController extends Controller
         $permissions = [
             'admin' => [
                 'summary' => 'View all activities, moderate comments, manage system progress.',
-                'actions' => [
-                    'createActivity' => true,
-                    'editActivity' => true,
-                    'updateStatus' => true,
-                    'addComment' => true,
-                    'deleteActivity' => true,
-                    'deleteComment' => true,
-                ],
-            ],
-            'author' => [
-                'summary' => 'Create and manage activities in your own projects. Review progress and leave comments.',
                 'actions' => [
                     'createActivity' => true,
                     'editActivity' => true,

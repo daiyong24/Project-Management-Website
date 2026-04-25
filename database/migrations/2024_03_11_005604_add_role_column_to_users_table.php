@@ -14,10 +14,10 @@ class AddRoleColumnToUsersTable extends Migration
     public function up()
     {
         /* The enum method defines the role column as an ENUM type, 
-        allowing only the values 'user', 'author', or 'admin'. 
+        allowing only the values 'admin' or 'user'. 
         Any other value will result in an error. */
         Schema::table('users', function (Blueprint $table) {
-            $table->enum('role', ['user','author','admin'])->default('user');
+            $table->enum('role', ['admin','user'])->default('user');
         });
     }
 

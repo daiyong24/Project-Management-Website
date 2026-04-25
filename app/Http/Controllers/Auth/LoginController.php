@@ -34,7 +34,6 @@ class LoginController extends Controller
     {
         $this->middleware('guest')->except('logout');
         $this->middleware('guest:admin')->except('logout');
-        $this->middleware('guest:author')->except('logout');
     }
     public function showAdminLoginForm()
     {
@@ -46,36 +45,21 @@ class LoginController extends Controller
             'email' => 'required|email',
             'password' => 'required|min:6'
         ]);
-        if (Auth::guard('admin')->attempt(['email' => $request->email, 'password' => $request->password], $request->get('remember'))) {
+        if (Auth::guard('admin')->attempt(['email' => $request->email, 'password' => $request->password, 'role' => 'admin'], $request->get('remember'))) {
             return redirect()->intended('/admin');
         }
         return back()->withInput($request->only('email', 'remember'));
     }
-    public function showAuthorLoginForm()
-    {
-        return view('auth.login', ['url' => 'author']);
-    }
-    public function authorLogin(Request $request)
-    {
-        $this->validate($request, [
-            'email' => 'required|email',
-            'password' => 'required|min:6'
-        ]);
-        if (Auth::guard('author')->attempt(['email' => $request->email, 'password' => $request->password], $request->get('remember'))) {
-            return redirect()->intended('/author');
-        }
-        return back()->withInput($request->only('email', 'remember'));
-    }
+
 
     public function logout(Request $request)
     {
         Auth::guard('admin')->logout();
-        Auth::guard('author')->logout();
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        return redirect('/login');
     }
 }

@@ -46,11 +46,7 @@ return [
             'driver' => 'session',
             /* How the users are retrieved from DB! 
                Which "model" and "table" to be used when looking up users for authentication!*/ 
-            'provider' => 'admins',
-            ],
-        'author' => [
-            'driver' => 'session',
-            'provider' => 'authors',
+            'provider' => 'users',
             ],
     ],
 
@@ -81,14 +77,6 @@ return [
         //     'driver' => 'database',
         //     'table' => 'users',
         // ],
-        'admins' => [
-            'driver' => 'eloquent',
-            'model' => App\Models\Admin::class,
-            ],
-        'authors' => [
-            'driver' => 'eloquent',
-            'model' => App\Models\Author::class,
-            ],
     ],
 
     /*

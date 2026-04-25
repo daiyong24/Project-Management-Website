@@ -3,7 +3,6 @@ namespace App\Http\Controllers\Auth;
 
 use App\Models\User;
 use App\Models\Admin;
-use App\Models\Author;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -38,7 +37,6 @@ class RegisterController extends Controller
     {
         $this->middleware('guest');
         $this->middleware('guest:admin');
-        $this->middleware('guest:author');
     }
     /**
      * Get a validator for an incoming registration request.
@@ -61,13 +59,7 @@ class RegisterController extends Controller
     {
         return view('auth.register', ['url' => 'admin']);
     }
-    /**
-     * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
-     */
-    public function showAuthorRegisterForm()
-    {
-        return view('auth.register', ['url' => 'author']);
-    }
+
     /**
      * @param array $data
      *
@@ -89,26 +81,13 @@ class RegisterController extends Controller
     protected function createAdmin(Request $request)
     {
         $this->validator($request->all())->validate();
-        Admin::create([
+        User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'role' => 'admin',
         ]);
         return redirect()->intended('login/admin');
     }
-    /**
-     * @param Request $request
-     *
-     * @return \Illuminate\Http\RedirectResponse
-     */
-    protected function createAuthor(Request $request)
-    {
-        $this->validator($request->all())->validate();
-        Author::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
-        return redirect()->intended('login/author');
-    }
+
 }

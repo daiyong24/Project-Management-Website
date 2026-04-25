@@ -22,12 +22,11 @@
 <body>
     @php
         $navUser = Auth::guard('admin')->user()
-            ?? Auth::guard('author')->user()
             ?? Auth::guard('web')->user();
 
         $navRole = Auth::guard('admin')->check()
             ? 'Admin'
-            : (Auth::guard('author')->check() ? 'Author' : (Auth::guard('web')->check() ? 'User' : null));
+            : (Auth::guard('web')->check() ? 'User' : null);
     @endphp
 
     <div id="app">
