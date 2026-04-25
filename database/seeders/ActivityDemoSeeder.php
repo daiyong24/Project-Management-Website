@@ -18,11 +18,11 @@ class ActivityDemoSeeder extends Seeder
         );
         $alicia = User::firstOrCreate(
             ['email' => 'alicia@example.com'],
-            ['name' => 'Alicia', 'password' => Hash::make('password'), 'role' => 'author']
+            ['name' => 'Alicia', 'password' => Hash::make('password'), 'role' => 'user']
         );
         $mira = User::firstOrCreate(
             ['email' => 'mira@example.com'],
-            ['name' => 'Mira', 'password' => Hash::make('password'), 'role' => 'author']
+            ['name' => 'Mira', 'password' => Hash::make('password'), 'role' => 'user']
         );
         $daniel = User::firstOrCreate(
             ['email' => 'daniel@example.com'],

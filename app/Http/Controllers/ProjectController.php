@@ -10,9 +10,6 @@ use Illuminate\Support\Facades\Gate;
 
 class ProjectController extends Controller
 {
-    /**
-     * Display a listing of all projects.
-     */
     public function index()
     {
         $user = Auth::user();
@@ -23,14 +20,11 @@ class ProjectController extends Controller
 
         Gate::authorize('viewAny', Project::class);
 
-        // Get projects based on user role
         if ($user->role === 'admin') {
-            // Admin sees all projects
             $projects = Project::with(['creator', 'users', 'activities'])
                 ->latest()
                 ->paginate(10);
         } else {
-            // Users see projects they're assigned to
             $projects = Project::whereHas('users', fn ($q) => $q->where('users.id', $user->id))
                 ->with(['creator', 'users', 'activities'])
                 ->latest()
@@ -40,9 +34,6 @@ class ProjectController extends Controller
         return view('projects.index', compact('projects'));
     }
 
-    /**
-     * Show the form for creating a new project.
-     */
     public function create()
     {
         $user = Auth::user();
@@ -60,9 +51,6 @@ class ProjectController extends Controller
         return view('projects.create', compact('users'));
     }
 
-    /**
-     * Store a newly created project in storage.
-     */
     public function store(Request $request)
     {
         $user = Auth::user();
@@ -84,45 +72,20 @@ class ProjectController extends Controller
             'users.*.exists' => 'One or more selected users do not exist.',
         ]);
 
-        // Create the project
         $project = Project::create([
             'title' => $validated['title'],
             'description' => $validated['description'],
             'created_by' => $user->id,
         ]);
 
-        // Attach users if provided
         if (!empty($validated['users'])) {
             $project->users()->attach($validated['users']);
         }
 
-        return redirect()->route('projects.show', $project)
+        return redirect()->route('projects.index', $project)
             ->with('success', 'Project created successfully.');
     }
 
-    /**
-     * Display the specified project.
-     */
-    public function show(Project $project)
-    {
-        $user = Auth::user();
-
-        if (!$user) {
-            return redirect()->route('login');
-        }
-
-        Gate::authorize('view', $project);
-
-        $project->load(['creator', 'users', 'activities' => function ($query) {
-            $query->latest();
-        }]);
-
-        return view('projects.show', compact('project'));
-    }
-
-    /**
-     * Show the form for editing the specified project.
-     */
     public function edit(Project $project)
     {
         $user = Auth::user();
@@ -144,9 +107,6 @@ class ProjectController extends Controller
         return view('projects.edit', compact('project', 'users', 'assignedUserIds'));
     }
 
-    /**
-     * Update the specified project in storage.
-     */
     public function update(Request $request, Project $project)
     {
         $user = Auth::user();
@@ -173,20 +133,16 @@ class ProjectController extends Controller
             'description' => $validated['description'],
         ]);
 
-        // Sync users
         if (isset($validated['users'])) {
             $project->users()->sync($validated['users']);
         } else {
             $project->users()->detach();
         }
 
-        return redirect()->route('projects.show', $project)
+        return redirect()->route('projects.index', $project)
             ->with('success', 'Project updated successfully.');
     }
 
-    /**
-     * Remove the specified project from storage.
-     */
     public function destroy(Project $project)
     {
         $user = Auth::user();
