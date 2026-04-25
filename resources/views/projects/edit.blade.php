@@ -39,9 +39,26 @@
             <div class="users-checkboxes">
                 @foreach ($users as $user)
                     <div class="user-checkbox">
-                        <input id="user_{{ $user->id }}" type="checkbox" name="users[]" value="{{ $user->id }}"
-                            {{ (in_array($user->id, $assignedUserIds) || (is_array(old('users')) && in_array($user->id, old('users')))) ? 'checked' : '' }}>
-                        <label for="user_{{ $user->id }}">{{ $user->name }}</label>
+                        @php
+                            $isCreator = $user->id === $project->created_by;
+                        @endphp
+
+                        <input
+                            id="user_{{ $user->id }}"
+                            type="checkbox"
+                            name="users[]"
+                            value="{{ $user->id }}"
+                            {{ $isCreator ? 'checked disabled' : '' }}
+                            {{ (!$isCreator && (in_array($user->id, $assignedUserIds) || (is_array(old('users')) && in_array($user->id, old('users'))))) ? 'checked' : '' }}
+                        >
+
+                        @if ($isCreator)
+                            <input type="hidden" name="users[]" value="{{ $user->id }}">
+                        @endif
+
+                        <label for="user_{{ $user->id }}">
+                            {{ $user->name }} {{ $isCreator ? '(Creator)' : '' }}
+                        </label>
                     </div>
                 @endforeach
             </div>

@@ -38,9 +38,27 @@
             <div class="users-checkboxes">
                 @foreach ($users as $user)
                     <div class="user-checkbox">
-                        <input id="user_{{ $user->id }}" type="checkbox" name="users[]" value="{{ $user->id }}"
-                            {{ (is_array(old('users')) && in_array($user->id, old('users'))) ? 'checked' : '' }}>
-                        <label for="user_{{ $user->id }}">{{ $user->name }}</label>
+                        @php
+                            $isCreator = $user->id === auth()->id();
+                        @endphp
+
+                        <input
+                            id="user_{{ $user->id }}"
+                            type="checkbox"
+                            name="users[]"
+                            value="{{ $user->id }}"
+                            {{ $isCreator ? 'checked disabled' : '' }}
+                            {{ (!$isCreator && is_array(old('users')) && in_array($user->id, old('users'))) ? 'checked' : '' }}
+                        >
+
+                        @if ($isCreator)
+                            <!-- ensure creator is always submitted -->
+                            <input type="hidden" name="users[]" value="{{ $user->id }}">
+                        @endif
+
+                        <label for="user_{{ $user->id }}">
+                            {{ $user->name }} {{ $isCreator ? '(You)' : '' }}
+                        </label>
                     </div>
                 @endforeach
             </div>
